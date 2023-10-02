@@ -6,8 +6,10 @@ import chat.Message;
 import chat.MessageType;
 
 import java.io.IOException;
+import java.net.Socket;
 
 public class Client {
+
     protected Connection connection;
     private volatile boolean clientConnected = false;
 
@@ -41,10 +43,8 @@ public class Client {
             if (shouldSendTextFromConsole()) {
                 sendTextMessage(text);
             }
-
         }
     }
-
 
     protected String getServerAddress() {
         ConsoleHelper.writeMessage("Введите адрес сервера:");
@@ -84,5 +84,73 @@ public class Client {
 
     public class SocketThread extends Thread {
 
+        @Override
+        public void run(){
+            String address = getServerAddress();
+            int port = getServerPort();
+            Socket socket = null;
+            try {
+                socket = new Socket(address, port);
+                connection =new Connection(socket);
+                clientHandshake();
+                clientMainLoop();
+            } catch (IOException | ClassNotFoundException e) {
+                notifyConnectionStatusChanged(false);
+            }
+
+        }
+
+        protected void clientHandshake() throws IOException, ClassNotFoundException {
+            while (true) {
+                Message response = connection.receive();
+                if (response.getType() == MessageType.NAME_REQUEST) {
+                    String userName = getUserName();
+                    Message request = new Message(MessageType.USER_NAME, userName);
+                    connection.send(request);
+                } else if (response.getType() == MessageType.NAME_ACCEPTED) {
+                    notifyConnectionStatusChanged(true);
+                    return;
+                } else {
+                    throw new IOException("Unexpected MessageType");
+                }
+            }
+        }
+
+        protected void clientMainLoop() throws IOException, ClassNotFoundException {
+            while (true) {
+                Message response = connection.receive();
+                if (response.getType() == MessageType.TEXT) {
+                    String text = response.getData();
+                    processIncomingMessage(text);
+                } else if (response.getType() == MessageType.USER_ADDED) {
+                    String userName = response.getData();
+                    informAboutAddingNewUser(userName);
+                } else if (response.getType() == MessageType.USER_REMOVED) {
+                    String userName = response.getData();
+                    informAboutDeletingNewUser(userName);
+                } else {
+                    throw new IOException("Unexpected MessageType");
+                }
+            }
+        }
+
+        protected void processIncomingMessage(String text) {
+            ConsoleHelper.writeMessage(text);
+        }
+
+        protected void informAboutAddingNewUser(String userName) {
+            ConsoleHelper.writeMessage("Пользователь с ником " + userName + " присоединился к чату.");
+        }
+
+        protected void informAboutDeletingNewUser(String userName) {
+            ConsoleHelper.writeMessage("Пользователь с ником " + userName + " покинул чат.");
+        }
+
+        protected void notifyConnectionStatusChanged(boolean clientConnected) {
+            Client.this.clientConnected = clientConnected;
+            synchronized (Client.this) {
+                Client.this.notify();
+            }
+        }
     }
 }
